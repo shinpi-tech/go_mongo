@@ -3,6 +3,7 @@ package mongox
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -17,6 +18,9 @@ type Config struct {
 	Password string
 	// AuthSource используется только при наличии User/Password.
 	AuthSource string
+	// DirectConnection включает directConnection=true (подключение к одному узлу
+	// без обнаружения реплик).
+	DirectConnection bool
 	// ObjectIDAsHexString включает декодирование ObjectID в hex-строки.
 	// Сервисы, работающие с bson.ObjectID напрямую, должны оставить false.
 	ObjectIDAsHexString bool
@@ -49,13 +53,21 @@ func buildURI(cfg Config) string {
 		port = "27017"
 	}
 
-	if cfg.User == "" && cfg.Password == "" {
-		return fmt.Sprintf("mongodb://%s:%s/%s", cfg.Host, port, cfg.Database)
+	uri := fmt.Sprintf("mongodb://%s:%s/%s", cfg.Host, port, cfg.Database)
+	if cfg.User != "" || cfg.Password != "" {
+		uri = fmt.Sprintf("mongodb://%s:%s@%s:%s/%s", cfg.User, cfg.Password, cfg.Host, port, cfg.Database)
 	}
 
-	uri := fmt.Sprintf("mongodb://%s:%s@%s:%s/%s", cfg.User, cfg.Password, cfg.Host, port, cfg.Database)
-	if cfg.AuthSource != "" {
-		uri += "?authSource=" + cfg.AuthSource
+	var params []string
+	if cfg.AuthSource != "" && (cfg.User != "" || cfg.Password != "") {
+		params = append(params, "authSource="+cfg.AuthSource)
 	}
+	if cfg.DirectConnection {
+		params = append(params, "directConnection=true")
+	}
+	if len(params) > 0 {
+		uri += "?" + strings.Join(params, "&")
+	}
+
 	return uri
 }

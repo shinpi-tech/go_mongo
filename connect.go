@@ -3,6 +3,8 @@ package mongox
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"os"
 	"strings"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -11,6 +13,9 @@ import (
 
 // Config описывает подключение к MongoDB.
 type Config struct {
+	// URI — полная строка подключения. Если задана, поля Host/Port/User/Password
+	// игнорируются (Database по-прежнему берётся из cfg.Database).
+	URI      string
 	Host     string
 	Port     string
 	Database string
@@ -28,7 +33,7 @@ type Config struct {
 
 // Connect подключается к MongoDB и проверяет соединение, возвращая базу данных.
 func Connect(ctx context.Context, cfg Config) (*mongo.Database, error) {
-	clientOptions := options.Client().ApplyURI(buildURI(cfg))
+	clientOptions := options.Client().ApplyURI(resolveURI(cfg))
 	if cfg.ObjectIDAsHexString {
 		clientOptions.SetBSONOptions(&options.BSONOptions{
 			ObjectIDAsHexString: true,
@@ -47,16 +52,32 @@ func Connect(ctx context.Context, cfg Config) (*mongo.Database, error) {
 	return client.Database(cfg.Database), nil
 }
 
+// resolveURI выбирает источник строки подключения:
+// Config.URI → переменная окружения MONGO_URL → сборка из Host/Port/User/Password.
+func resolveURI(cfg Config) string {
+	if cfg.URI != "" {
+		return cfg.URI
+	}
+	if env := os.Getenv("MONGO_URL"); env != "" {
+		return env
+	}
+	return buildURI(cfg)
+}
+
 func buildURI(cfg Config) string {
 	port := cfg.Port
 	if port == "" {
 		port = "27017"
 	}
 
-	uri := fmt.Sprintf("mongodb://%s:%s/%s", cfg.Host, port, cfg.Database)
+	var b strings.Builder
+	b.WriteString("mongodb://")
 	if cfg.User != "" || cfg.Password != "" {
-		uri = fmt.Sprintf("mongodb://%s:%s@%s:%s/%s", cfg.User, cfg.Password, cfg.Host, port, cfg.Database)
+		// url.UserPassword корректно экранирует спецсимволы в логине и пароле.
+		b.WriteString(url.UserPassword(cfg.User, cfg.Password).String())
+		b.WriteString("@")
 	}
+	fmt.Fprintf(&b, "%s:%s/%s", cfg.Host, port, cfg.Database)
 
 	var params []string
 	if cfg.AuthSource != "" && (cfg.User != "" || cfg.Password != "") {
@@ -66,8 +87,8 @@ func buildURI(cfg Config) string {
 		params = append(params, "directConnection=true")
 	}
 	if len(params) > 0 {
-		uri += "?" + strings.Join(params, "&")
+		b.WriteString("?" + strings.Join(params, "&"))
 	}
 
-	return uri
+	return b.String()
 }

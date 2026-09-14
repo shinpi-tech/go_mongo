@@ -18,6 +18,7 @@ db, err := mongox.Connect(ctx, mongox.Config{
     User:                cfg.Mongo.User,
     Password:            cfg.Mongo.Password,
     AuthSource:          cfg.Mongo.AuthSource,
+    DirectConnection:    cfg.Mongo.DirectConnection,
     ObjectIDAsHexString: true,
 })
 if err != nil {
